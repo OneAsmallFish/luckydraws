@@ -7,6 +7,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -15,6 +16,9 @@ import net.minecraft.world.level.Level;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
+
+import java.util.List;
 
 @Mod.EventBusSubscriber(modid = Luckydraws.MODID)
 public class LuckyDrawsCommands {
@@ -37,6 +41,8 @@ public class LuckyDrawsCommands {
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("stddev", DoubleArgumentType.doubleArg(0.0, 64.0))
                                 .executes(context -> setStdDev(context.getSource(), DoubleArgumentType.getDouble(context, "stddev")))))
+                .then(Commands.literal("history")
+                        .executes(context -> showHistory(context.getSource())))
                 .then(Commands.literal("show")
                         .executes(context -> showConfig(context.getSource()))));
     }
@@ -62,7 +68,8 @@ public class LuckyDrawsCommands {
             return 0;
         }
 
-        ItemStack stack = LuckyDrawsEvents.rollStack(overworld.getRandom());
+        boolean forceSpecial = data.getLowQualityStreak(player.getUUID()) >= 3;
+        ItemStack stack = LuckyDrawsEvents.rollStack(overworld.getRandom(), forceSpecial, false, false);
         if (stack.isEmpty()) {
             source.sendFailure(Component.literal("抽取失败：物品列表为空。"));
             return 0;
@@ -70,6 +77,8 @@ public class LuckyDrawsCommands {
 
         LuckyDrawsEvents.grantToPlayer(player, stack);
         player.sendSystemMessage(LuckyDrawsEvents.buildMessage(stack));
+        data.recordHistory(player, stack, "reroll");
+        data.updateLowQualityStreak(player.getUUID(), LuckyDrawsEvents.isSpecial(stack));
         data.markRerollUsed(player.getUUID(), currentDay);
         data.setDirty();
         return 1;
@@ -98,5 +107,45 @@ public class LuckyDrawsCommands {
                 + ", 均值=" + Config.drawMean
                 + ", 标准差=" + Config.drawStdDev), false);
         return 1;
+    }
+
+    private static int showHistory(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            source.sendFailure(Component.literal("主世界不存在，无法查看记录。"));
+            return 0;
+        }
+
+        LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
+        List<LuckyDrawsEvents.HistoryEntry> history = data.getHistory(player.getUUID());
+        if (history.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("暂无抽取记录。"), false);
+            return 1;
+        }
+
+        source.sendSuccess(() -> Component.literal("最近" + history.size() + "次抽取记录："), false);
+        for (LuckyDrawsEvents.HistoryEntry entry : history) {
+            Component line = buildHistoryLine(entry);
+            source.sendSuccess(() -> line, false);
+        }
+        return 1;
+    }
+
+    private static Component buildHistoryLine(LuckyDrawsEvents.HistoryEntry entry) {
+        String itemId = entry.getItemId();
+        ItemStack stack = ItemStack.EMPTY;
+        if (ForgeRegistries.ITEMS.containsKey(new ResourceLocation(itemId))) {
+            stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(itemId)), entry.getCount());
+        }
+        Component name = stack.isEmpty() ? Component.literal(itemId) : stack.getHoverName();
+        String flag = entry.isSpecial() ? "（特殊）" : "";
+        String source = "抽取";
+        if ("reroll".equals(entry.getSource())) {
+            source = "再抽";
+        }
+        return Component.literal("- ")
+                .append(name)
+                .append(Component.literal(" x " + entry.getCount() + " " + source + flag));
     }
 }

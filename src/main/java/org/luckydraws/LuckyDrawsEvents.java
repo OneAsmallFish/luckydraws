@@ -113,7 +113,7 @@ public class LuckyDrawsEvents {
         data.rerollUsedByDay.clear();
         data.setDirty();
 
-        Component announcement = Component.literal("今日抽取已完成");
+        MutableComponent announcement = Component.literal("今日抽取已完成");
         if (thunderBonus || fullMoonBonus) {
             StringBuilder bonus = new StringBuilder("（");
             if (thunderBonus) {
@@ -285,23 +285,56 @@ public class LuckyDrawsEvents {
         return loreOptions[random.nextInt(loreOptions.length)];
     }
 
-    private static double rollAttributeAmount(RandomSource random, double min, double max) {
-        double value = min + (max - min) * random.nextDouble();
+    private static double rollAttributeAmount(RandomSource random, double min, double max, boolean fullMoonBonus) {
+        double bonusMax = fullMoonBonus ? max * FULL_MOON_ATTRIBUTE_BONUS : max;
+        double value = min + (bonusMax - min) * random.nextDouble();
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static boolean isFullMoonNight(ServerLevel level, long timeOfDay) {
+        return level.getMoonPhase() == 0 && timeOfDay >= 13000L;
+    }
+
+    static boolean isSpecial(ItemStack stack) {
+        return stack.isEnchanted() || (stack.hasTag() && stack.getTag().getBoolean(LUCKY_TAG));
     }
 
     static class LuckyDrawsSavedData extends SavedData {
         private static final String LAST_DRAW_DAY = "LastDrawDay";
         private static final String REROLL_USED = "RerollUsed";
+        private static final String LOW_QUALITY = "LowQuality";
+        private static final String HISTORY = "History";
+        private static final String THUNDER_PENDING = "ThunderPending";
+        private static final String FULL_MOON_PENDING = "FullMoonPending";
         private long lastDrawDay;
+        private boolean thunderPending;
+        private boolean fullMoonPending;
         private final Map<UUID, Long> rerollUsedByDay = new HashMap<>();
+        private final Map<UUID, Integer> lowQualityStreak = new HashMap<>();
+        private final Map<UUID, Deque<HistoryEntry>> historyByPlayer = new HashMap<>();
 
         private static LuckyDrawsSavedData load(CompoundTag tag) {
             LuckyDrawsSavedData data = new LuckyDrawsSavedData();
             data.lastDrawDay = tag.getLong(LAST_DRAW_DAY);
+            data.thunderPending = tag.getBoolean(THUNDER_PENDING);
+            data.fullMoonPending = tag.getBoolean(FULL_MOON_PENDING);
             CompoundTag rerollTag = tag.getCompound(REROLL_USED);
             for (String key : rerollTag.getAllKeys()) {
                 data.rerollUsedByDay.put(UUID.fromString(key), rerollTag.getLong(key));
+            }
+            CompoundTag lowQualityTag = tag.getCompound(LOW_QUALITY);
+            for (String key : lowQualityTag.getAllKeys()) {
+                data.lowQualityStreak.put(UUID.fromString(key), lowQualityTag.getInt(key));
+            }
+            CompoundTag historyTag = tag.getCompound(HISTORY);
+            for (String key : historyTag.getAllKeys()) {
+                UUID playerId = UUID.fromString(key);
+                ListTag entries = historyTag.getList(key, Tag.TAG_COMPOUND);
+                Deque<HistoryEntry> deque = new ArrayDeque<>();
+                for (int i = 0; i < entries.size(); i++) {
+                    deque.addLast(HistoryEntry.fromTag(entries.getCompound(i)));
+                }
+                data.historyByPlayer.put(playerId, deque);
             }
             return data;
         }
@@ -309,11 +342,27 @@ public class LuckyDrawsEvents {
         @Override
         public CompoundTag save(CompoundTag tag) {
             tag.putLong(LAST_DRAW_DAY, lastDrawDay);
+            tag.putBoolean(THUNDER_PENDING, thunderPending);
+            tag.putBoolean(FULL_MOON_PENDING, fullMoonPending);
             CompoundTag rerollTag = new CompoundTag();
             for (Map.Entry<UUID, Long> entry : rerollUsedByDay.entrySet()) {
                 rerollTag.putLong(entry.getKey().toString(), entry.getValue());
             }
             tag.put(REROLL_USED, rerollTag);
+            CompoundTag lowQualityTag = new CompoundTag();
+            for (Map.Entry<UUID, Integer> entry : lowQualityStreak.entrySet()) {
+                lowQualityTag.putInt(entry.getKey().toString(), entry.getValue());
+            }
+            tag.put(LOW_QUALITY, lowQualityTag);
+            CompoundTag historyTag = new CompoundTag();
+            for (Map.Entry<UUID, Deque<HistoryEntry>> entry : historyByPlayer.entrySet()) {
+                ListTag entries = new ListTag();
+                for (HistoryEntry historyEntry : entry.getValue()) {
+                    entries.add(historyEntry.toTag());
+                }
+                historyTag.put(entry.getKey().toString(), entries);
+            }
+            tag.put(HISTORY, historyTag);
             return tag;
         }
 
@@ -332,6 +381,105 @@ public class LuckyDrawsEvents {
 
         long getLastDrawDay() {
             return lastDrawDay;
+        }
+
+        int getLowQualityStreak(UUID playerId) {
+            return lowQualityStreak.getOrDefault(playerId, 0);
+        }
+
+        void updateLowQualityStreak(UUID playerId, boolean special) {
+            if (special) {
+                lowQualityStreak.put(playerId, 0);
+            } else {
+                lowQualityStreak.put(playerId, getLowQualityStreak(playerId) + 1);
+            }
+        }
+
+        void recordHistory(Player player, ItemStack stack, String source) {
+            Deque<HistoryEntry> deque = historyByPlayer.computeIfAbsent(player.getUUID(), key -> new ArrayDeque<>());
+            deque.addFirst(new HistoryEntry(player.getName().getString(), stack, source));
+            while (deque.size() > HISTORY_LIMIT) {
+                deque.removeLast();
+            }
+        }
+
+        List<HistoryEntry> getHistory(UUID playerId) {
+            Deque<HistoryEntry> deque = historyByPlayer.get(playerId);
+            if (deque == null) {
+                return List.of();
+            }
+            return List.copyOf(deque);
+        }
+    }
+
+    static class HistoryEntry {
+        private static final String PLAYER_NAME = "PlayerName";
+        private static final String ITEM = "Item";
+        private static final String COUNT = "Count";
+        private static final String SPECIAL = "Special";
+        private static final String SOURCE = "Source";
+        private static final String TIME = "Time";
+
+        private final String playerName;
+        private final String itemId;
+        private final int count;
+        private final boolean special;
+        private final String source;
+        private final long time;
+
+        private HistoryEntry(String playerName, ItemStack stack, String source) {
+            this.playerName = playerName;
+            this.itemId = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
+            this.count = stack.getCount();
+            this.special = LuckyDrawsEvents.isSpecial(stack);
+            this.source = source;
+            this.time = System.currentTimeMillis();
+        }
+
+        private HistoryEntry(String playerName, String itemId, int count, boolean special, String source, long time) {
+            this.playerName = playerName;
+            this.itemId = itemId;
+            this.count = count;
+            this.special = special;
+            this.source = source;
+            this.time = time;
+        }
+
+        private CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putString(PLAYER_NAME, playerName);
+            tag.putString(ITEM, itemId);
+            tag.putInt(COUNT, count);
+            tag.putBoolean(SPECIAL, special);
+            tag.putString(SOURCE, source);
+            tag.putLong(TIME, time);
+            return tag;
+        }
+
+        private static HistoryEntry fromTag(CompoundTag tag) {
+            return new HistoryEntry(
+                    tag.getString(PLAYER_NAME),
+                    tag.getString(ITEM),
+                    tag.getInt(COUNT),
+                    tag.getBoolean(SPECIAL),
+                    tag.getString(SOURCE),
+                    tag.getLong(TIME));
+        }
+
+        String getItemId() {
+            return itemId;
+        }
+
+        int getCount() {
+            return count;
+        }
+
+        boolean isSpecial() {
+            return special;
+        }
+
+        String getSource() {
+            return source;
         }
     }
 }
