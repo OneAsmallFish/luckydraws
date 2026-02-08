@@ -20,13 +20,17 @@ public class Config {
 
     private static final ForgeConfigSpec.DoubleValue MOB_SPAWN_CHANCE = BUILDER.comment("随机生成生物概率(0-1)。").defineInRange("mobSpawnChance", 0.01, 0.0, 1.0);
 
-    private static final ForgeConfigSpec.IntValue MOB_SPAWN_MAX = BUILDER.comment("随机生成生物的最大数量(1-20)。").defineInRange("mobSpawnMax", 5, 1, 20);
+    private static final ForgeConfigSpec.IntValue MOB_SPAWN_MAX = BUILDER.comment("随机生成生物的最大数量(1-20)。").defineInRange("mobSpawnMax", 8, 1, 20);
 
     private static final ForgeConfigSpec.IntValue MOB_SIZE_BONUS_MAX = BUILDER.comment("可变体型生物的最大加成(0-20)。").defineInRange("mobSizeBonusMax", 5, 0, 20);
 
     private static final ForgeConfigSpec.IntValue CREEPER_RADIUS_MAX = BUILDER.comment("苦力怕最大爆炸半径(1-128)。").defineInRange("creeperRadiusMax", 128, 1, 128);
 
-    private static final ForgeConfigSpec.DoubleValue EXP_LAMBDA = BUILDER.comment("指数分布参数(0.1-5.0)。").defineInRange("expLambda", 0.7, 0.1, 5.0);
+    private static final ForgeConfigSpec.DoubleValue EXP_LAMBDA = BUILDER.comment("指数分布参数(0.1-5.0)。").defineInRange("expLambda", 1.0, 0.1, 5.0);
+
+    private static final ForgeConfigSpec.IntValue ENCHANT_LEVEL_MAX = BUILDER.comment("附魔等级上限(1-255)。").defineInRange("enchantLevelMax", 255, 1, 255);
+
+    private static final ForgeConfigSpec.IntValue POTION_LEVEL_MAX = BUILDER.comment("药水等级上限(1-255)。").defineInRange("potionLevelMax", 255, 1, 255);
 
     static final ForgeConfigSpec SPEC = BUILDER.build();
 
@@ -39,6 +43,8 @@ public class Config {
     public static int mobSizeBonusMax;
     public static int creeperRadiusMax;
     public static double expLambda;
+    public static int enchantLevelMax;
+    public static int potionLevelMax;
 
     // 由 Forge 在配置装载时写入
     @SubscribeEvent
@@ -52,6 +58,8 @@ public class Config {
         mobSizeBonusMax = MOB_SIZE_BONUS_MAX.get();
         creeperRadiusMax = CREEPER_RADIUS_MAX.get();
         expLambda = EXP_LAMBDA.get();
+        enchantLevelMax = ENCHANT_LEVEL_MAX.get();
+        potionLevelMax = POTION_LEVEL_MAX.get();
     }
 
     static void setDrawTime(int value) {
@@ -97,5 +105,15 @@ public class Config {
     static void setExpLambda(double value) {
         EXP_LAMBDA.set(value);
         expLambda = value;
+    }
+
+    static void setEnchantLevelMax(int value) {
+        ENCHANT_LEVEL_MAX.set(value);
+        enchantLevelMax = value;
+    }
+
+    static void setPotionLevelMax(int value) {
+        POTION_LEVEL_MAX.set(value);
+        potionLevelMax = value;
     }
 }

@@ -65,8 +65,18 @@ public class LuckyDrawsCommands {
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("lambda", DoubleArgumentType.doubleArg(0.1, 5.0))
                                 .executes(context -> setExpLambda(context.getSource(), DoubleArgumentType.getDouble(context, "lambda")))))
+                .then(Commands.literal("setenchantmax")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 255))
+                                .executes(context -> setEnchantMax(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
+                .then(Commands.literal("setpotionmax")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 255))
+                                .executes(context -> setPotionMax(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
                 .then(Commands.literal("history")
                         .executes(context -> showHistory(context.getSource())))
+                .then(Commands.literal("help")
+                        .executes(context -> showHelp(context.getSource())))
                 .then(Commands.literal("mobspawn")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("on")
@@ -143,7 +153,9 @@ public class LuckyDrawsCommands {
                 + ", 生物数量上限=" + Config.mobSpawnMax
                 + ", 体型加成上限=" + Config.mobSizeBonusMax
                 + ", 苦力怕爆炸上限=" + Config.creeperRadiusMax
-                + ", 指数参数=" + Config.expLambda), false);
+                + ", 指数参数=" + Config.expLambda
+                + ", 附魔上限=" + Config.enchantLevelMax
+                + ", 药水上限=" + Config.potionLevelMax), false);
         return 1;
     }
 
@@ -183,6 +195,18 @@ public class LuckyDrawsCommands {
         return 1;
     }
 
+    private static int setEnchantMax(CommandSourceStack source, int max) {
+        Config.setEnchantLevelMax(max);
+        source.sendSuccess(() -> Component.literal("附魔等级上限已设置为: " + max), true);
+        return 1;
+    }
+
+    private static int setPotionMax(CommandSourceStack source, int max) {
+        Config.setPotionLevelMax(max);
+        source.sendSuccess(() -> Component.literal("药水等级上限已设置为: " + max), true);
+        return 1;
+    }
+
     private static int showHistory(CommandSourceStack source) throws CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
         ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
@@ -203,6 +227,29 @@ public class LuckyDrawsCommands {
             Component line = buildHistoryLine(entry);
             source.sendSuccess(() -> line, false);
         }
+        return 1;
+    }
+
+    private static int showHelp(CommandSourceStack source) {
+        source.sendSuccess(() -> Component.literal("LuckyDraws 指令帮助"), false);
+        source.sendSuccess(() -> Component.literal("玩家可用:"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws reroll - 再抽一次(每日1次)"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws history - 查看最近抽取记录"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws show - 查看当前配置"), false);
+
+        source.sendSuccess(() -> Component.literal("管理员可用:"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws mobspawn on|off|status - 生物生成开关"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws settime <0-23999>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setmean <1-64>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setstddev <0-64>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setpotionchance <0-1>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setmobchance <0-1>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setmobmax <1-20>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setmobsize <0-20>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setcreepradius <1-128>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setexplambda <0.1-5>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setenchantmax <1-255>"), false);
+        source.sendSuccess(() -> Component.literal("/luckydraws setpotionmax <1-255>"), false);
         return 1;
     }
 

@@ -219,8 +219,7 @@ public class LuckyDrawsEvents {
             return;
         }
         Enchantment enchantment = enchantments.get(random.nextInt(enchantments.size()));
-        int maxLevel = Math.max(1, enchantment.getMaxLevel());
-        int level = rollExponentialInt(random, maxLevel, Config.expLambda);
+        int level = rollExponentialInt(random, Config.enchantLevelMax, Config.expLambda);
         stack.enchant(enchantment, level);
     }
 
@@ -322,7 +321,7 @@ public class LuckyDrawsEvents {
             return;
         }
         MobEffect effect = effects.get(level.getRandom().nextInt(effects.size()));
-        int amplifier = rollExponentialInt(level.getRandom(), 4, Config.expLambda) - 1;
+        int amplifier = rollExponentialInt(level.getRandom(), Config.potionLevelMax, Config.expLambda) - 1;
         int duration = 200 + level.getRandom().nextInt(800);
         player.addEffect(new MobEffectInstance(effect, duration, amplifier));
     }
