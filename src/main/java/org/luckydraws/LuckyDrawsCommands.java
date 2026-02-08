@@ -41,8 +41,40 @@ public class LuckyDrawsCommands {
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("stddev", DoubleArgumentType.doubleArg(0.0, 64.0))
                                 .executes(context -> setStdDev(context.getSource(), DoubleArgumentType.getDouble(context, "stddev")))))
+                .then(Commands.literal("setpotionchance")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("chance", DoubleArgumentType.doubleArg(0.0, 1.0))
+                                .executes(context -> setPotionChance(context.getSource(), DoubleArgumentType.getDouble(context, "chance")))))
+                .then(Commands.literal("setmobchance")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("chance", DoubleArgumentType.doubleArg(0.0, 1.0))
+                                .executes(context -> setMobChance(context.getSource(), DoubleArgumentType.getDouble(context, "chance")))))
+                .then(Commands.literal("setmobmax")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 20))
+                                .executes(context -> setMobMax(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
+                .then(Commands.literal("setmobsize")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("max", IntegerArgumentType.integer(0, 20))
+                                .executes(context -> setMobSize(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
+                .then(Commands.literal("setcreepradius")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 128))
+                                .executes(context -> setCreeperRadius(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
+                .then(Commands.literal("setexplambda")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("lambda", DoubleArgumentType.doubleArg(0.1, 5.0))
+                                .executes(context -> setExpLambda(context.getSource(), DoubleArgumentType.getDouble(context, "lambda")))))
                 .then(Commands.literal("history")
                         .executes(context -> showHistory(context.getSource())))
+                .then(Commands.literal("mobspawn")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("on")
+                                .executes(context -> setMobSpawn(context.getSource(), true)))
+                        .then(Commands.literal("off")
+                                .executes(context -> setMobSpawn(context.getSource(), false)))
+                        .then(Commands.literal("status")
+                                .executes(context -> showMobSpawn(context.getSource()))))
                 .then(Commands.literal("show")
                         .executes(context -> showConfig(context.getSource()))));
     }
@@ -105,7 +137,49 @@ public class LuckyDrawsCommands {
     private static int showConfig(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal("当前配置: 抽取时间=" + Config.drawTime
                 + ", 均值=" + Config.drawMean
-                + ", 标准差=" + Config.drawStdDev), false);
+                + ", 标准差=" + Config.drawStdDev
+                + ", 药水概率=" + Config.potionChance
+                + ", 生物概率=" + Config.mobSpawnChance
+                + ", 生物数量上限=" + Config.mobSpawnMax
+                + ", 体型加成上限=" + Config.mobSizeBonusMax
+                + ", 苦力怕爆炸上限=" + Config.creeperRadiusMax
+                + ", 指数参数=" + Config.expLambda), false);
+        return 1;
+    }
+
+    private static int setPotionChance(CommandSourceStack source, double chance) {
+        Config.setPotionChance(chance);
+        source.sendSuccess(() -> Component.literal("药水概率已设置为: " + chance), true);
+        return 1;
+    }
+
+    private static int setMobChance(CommandSourceStack source, double chance) {
+        Config.setMobSpawnChance(chance);
+        source.sendSuccess(() -> Component.literal("生物概率已设置为: " + chance), true);
+        return 1;
+    }
+
+    private static int setMobMax(CommandSourceStack source, int max) {
+        Config.setMobSpawnMax(max);
+        source.sendSuccess(() -> Component.literal("生物数量上限已设置为: " + max), true);
+        return 1;
+    }
+
+    private static int setMobSize(CommandSourceStack source, int max) {
+        Config.setMobSizeBonusMax(max);
+        source.sendSuccess(() -> Component.literal("体型加成上限已设置为: " + max), true);
+        return 1;
+    }
+
+    private static int setCreeperRadius(CommandSourceStack source, int max) {
+        Config.setCreeperRadiusMax(max);
+        source.sendSuccess(() -> Component.literal("苦力怕爆炸上限已设置为: " + max), true);
+        return 1;
+    }
+
+    private static int setExpLambda(CommandSourceStack source, double lambda) {
+        Config.setExpLambda(lambda);
+        source.sendSuccess(() -> Component.literal("指数参数已设置为: " + lambda), true);
         return 1;
     }
 
@@ -129,6 +203,30 @@ public class LuckyDrawsCommands {
             Component line = buildHistoryLine(entry);
             source.sendSuccess(() -> line, false);
         }
+        return 1;
+    }
+
+    private static int setMobSpawn(CommandSourceStack source, boolean enabled) {
+        ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            source.sendFailure(Component.literal("主世界不存在，无法设置。"));
+            return 0;
+        }
+        LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
+        data.setMobSpawnEnabled(enabled);
+        data.setDirty();
+        source.sendSuccess(() -> Component.literal("随机生物生成已" + (enabled ? "开启" : "关闭")), true);
+        return 1;
+    }
+
+    private static int showMobSpawn(CommandSourceStack source) {
+        ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            source.sendFailure(Component.literal("主世界不存在，无法查看。"));
+            return 0;
+        }
+        LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
+        source.sendSuccess(() -> Component.literal("随机生物生成状态: " + (data.isMobSpawnEnabled() ? "开启" : "关闭")), false);
         return 1;
     }
 

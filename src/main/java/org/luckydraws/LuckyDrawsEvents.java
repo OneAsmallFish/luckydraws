@@ -12,11 +12,13 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraftforge.event.TickEvent;
@@ -105,6 +107,20 @@ public class LuckyDrawsEvents {
             player.sendSystemMessage(buildMessage(stack));
             data.recordHistory(player, stack, "draw");
             data.updateLowQualityStreak(player.getUUID(), isSpecial(stack));
+
+            // 独立抽取：随机药水效果
+            maybeApplyPotion(overworld, player);
+            if (data.mobSpawnEnabled) {
+                // 独立触发：随机生成附近生物
+                LuckyDrawsMobSpawner.maybeSpawnMob(
+                        overworld,
+                        player,
+                        Config.mobSpawnChance,
+                        Config.mobSpawnMax,
+                        Config.mobSizeBonusMax,
+                        Config.creeperRadiusMax,
+                        Config.expLambda);
+            }
         }
 
         data.lastDrawDay = currentDay;
@@ -160,13 +176,9 @@ public class LuckyDrawsEvents {
         ItemStack stack = new ItemStack(item, count);
         double chance = ENCHANT_CHANCE + (thunderBonus ? THUNDER_BONUS_CHANCE : 0.0);
         if (forceSpecial || random.nextDouble() < chance) {
-            // 为物品添加随机附魔或自定义标签，避免抛出异常影响流程
-            if (stack.isEnchantable()) {
-                int level = rollEnchantLevel(random, 30);
-                stack = EnchantmentHelper.enchantItem(random, stack, level, false);
-            } else {
-                applyLuckyTag(random, stack, fullMoonBonus);
-            }
+            // 特殊抽取：随机附魔 + 标签
+            applyRandomEnchantment(random, stack);
+            applyLuckyTag(random, stack, fullMoonBonus);
         }
         return stack;
     }
@@ -201,21 +213,15 @@ public class LuckyDrawsEvents {
         return name;
     }
 
-    // 等级概率从小到大递减：低等级更常见
-    private static int rollEnchantLevel(RandomSource random, int maxLevel) {
-        double total = 0.0;
-        for (int level = 1; level <= maxLevel; level++) {
-            total += 1.0 / level;
+    private static void applyRandomEnchantment(RandomSource random, ItemStack stack) {
+        List<Enchantment> enchantments = new ArrayList<>(ForgeRegistries.ENCHANTMENTS.getValues());
+        if (enchantments.isEmpty()) {
+            return;
         }
-        double pick = random.nextDouble() * total;
-        double running = 0.0;
-        for (int level = 1; level <= maxLevel; level++) {
-            running += 1.0 / level;
-            if (pick <= running) {
-                return level;
-            }
-        }
-        return maxLevel;
+        Enchantment enchantment = enchantments.get(random.nextInt(enchantments.size()));
+        int maxLevel = Math.max(1, enchantment.getMaxLevel());
+        int level = rollExponentialInt(random, maxLevel, Config.expLambda);
+        stack.enchant(enchantment, level);
     }
 
     private static void applyLuckyTag(RandomSource random, ItemStack stack, boolean fullMoonBonus) {
@@ -228,13 +234,15 @@ public class LuckyDrawsEvents {
 
     private static void applyDisplayTag(RandomSource random, ItemStack stack) {
         CompoundTag display = stack.getOrCreateTag().getCompound("display");
-        String name = rollName(random);
+        Component original = stack.getHoverName().copy()
+                .withStyle(style -> style.withColor(ChatFormatting.BLUE).withItalic(true));
         ListTag lore = new ListTag();
         for (String line : rollLore(random)) {
             lore.add(StringTag.valueOf(line));
         }
-        display.putString("Name", Component.Serializer.toJson(Component.literal(name)));
+        display.putString("Name", Component.Serializer.toJson(original));
         display.put("Lore", lore);
+        display.putInt("color", random.nextInt(0x1000000));
         stack.getOrCreateTag().put("display", display);
     }
 
@@ -242,29 +250,13 @@ public class LuckyDrawsEvents {
         ListTag modifiers = new ListTag();
         CompoundTag modifier = new CompoundTag();
         modifier.putString("Slot", "mainhand");
-        if (random.nextBoolean()) {
-            modifier.putString("AttributeName", "generic.attack_damage");
-            modifier.putDouble("Amount", rollAttributeAmount(random, 6.0, 20.0, fullMoonBonus));
-            modifier.putInt("Operation", 0);
-        } else {
-            modifier.putString("AttributeName", "generic.attack_speed");
-            modifier.putDouble("Amount", rollAttributeAmount(random, 0.5, 2.5, fullMoonBonus));
-            modifier.putInt("Operation", 0);
-        }
+        AttributeRange range = rollAttribute(random);
+        modifier.putString("AttributeName", range.name);
+        modifier.putDouble("Amount", rollAttributeAmount(random, range.min, range.max, fullMoonBonus));
+        modifier.putInt("Operation", 0);
         modifier.putIntArray("UUID", new int[] { random.nextInt(), random.nextInt(), random.nextInt(), random.nextInt() });
         modifiers.add(modifier);
         stack.getOrCreateTag().put("AttributeModifiers", modifiers);
-    }
-
-    private static String rollName(RandomSource random) {
-        String[] names = new String[] {
-                "寰宇支配之咸鱼",
-                "命运回响",
-                "流光碎片",
-                "尘世遗珍",
-                "星辰残响"
-        };
-        return names[random.nextInt(names.length)];
     }
 
     private static String[] rollLore(RandomSource random) {
@@ -287,8 +279,52 @@ public class LuckyDrawsEvents {
 
     private static double rollAttributeAmount(RandomSource random, double min, double max, boolean fullMoonBonus) {
         double bonusMax = fullMoonBonus ? max * FULL_MOON_ATTRIBUTE_BONUS : max;
-        double value = min + (bonusMax - min) * random.nextDouble();
+        double value = min + (bonusMax - min) * rollExponentialUnit(random, Config.expLambda);
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static double rollExponentialUnit(RandomSource random, double lambda) {
+        double u = random.nextDouble();
+        double limit = 1.0 - Math.exp(-lambda);
+        double x = -Math.log(1.0 - u * limit) / lambda;
+        return Mth.clamp(x, 0.0, 1.0);
+    }
+
+    private static int rollExponentialInt(RandomSource random, int max, double lambda) {
+        double x = rollExponentialUnit(random, lambda);
+        if (max <= 1) {
+            return 1;
+        }
+        int value = 1 + (int) Math.floor(x * (double) (max - 1));
+        return Mth.clamp(value, 1, max);
+    }
+
+    private static AttributeRange rollAttribute(RandomSource random) {
+        AttributeRange[] ranges = new AttributeRange[] {
+                new AttributeRange("generic.attack_damage", 4.0, 18.0),
+                new AttributeRange("generic.attack_speed", 0.5, 2.5),
+                new AttributeRange("generic.armor", 1.0, 12.0),
+                new AttributeRange("generic.armor_toughness", 0.5, 6.0),
+                new AttributeRange("generic.max_health", 2.0, 20.0),
+                new AttributeRange("generic.movement_speed", 0.02, 0.2),
+                new AttributeRange("generic.knockback_resistance", 0.05, 0.6),
+                new AttributeRange("generic.luck", 0.5, 5.0)
+        };
+        return ranges[random.nextInt(ranges.length)];
+    }
+
+    private static void maybeApplyPotion(ServerLevel level, Player player) {
+        if (level.getRandom().nextDouble() >= Config.potionChance) {
+            return;
+        }
+        List<MobEffect> effects = new ArrayList<>(ForgeRegistries.MOB_EFFECTS.getValues());
+        if (effects.isEmpty()) {
+            return;
+        }
+        MobEffect effect = effects.get(level.getRandom().nextInt(effects.size()));
+        int amplifier = rollExponentialInt(level.getRandom(), 4, Config.expLambda) - 1;
+        int duration = 200 + level.getRandom().nextInt(800);
+        player.addEffect(new MobEffectInstance(effect, duration, amplifier));
     }
 
     private static boolean isFullMoonNight(ServerLevel level, long timeOfDay) {
@@ -296,8 +332,10 @@ public class LuckyDrawsEvents {
     }
 
     static boolean isSpecial(ItemStack stack) {
-        return stack.isEnchanted() || (stack.hasTag() && stack.getTag().getBoolean(LUCKY_TAG));
+        return stack.hasTag() && stack.getTag().getBoolean(LUCKY_TAG);
     }
+
+    private record AttributeRange(String name, double min, double max) {}
 
     static class LuckyDrawsSavedData extends SavedData {
         private static final String LAST_DRAW_DAY = "LastDrawDay";
@@ -306,9 +344,11 @@ public class LuckyDrawsEvents {
         private static final String HISTORY = "History";
         private static final String THUNDER_PENDING = "ThunderPending";
         private static final String FULL_MOON_PENDING = "FullMoonPending";
+        private static final String MOB_SPAWN_ENABLED = "MobSpawnEnabled";
         private long lastDrawDay;
         private boolean thunderPending;
         private boolean fullMoonPending;
+        private boolean mobSpawnEnabled = true;
         private final Map<UUID, Long> rerollUsedByDay = new HashMap<>();
         private final Map<UUID, Integer> lowQualityStreak = new HashMap<>();
         private final Map<UUID, Deque<HistoryEntry>> historyByPlayer = new HashMap<>();
@@ -318,6 +358,9 @@ public class LuckyDrawsEvents {
             data.lastDrawDay = tag.getLong(LAST_DRAW_DAY);
             data.thunderPending = tag.getBoolean(THUNDER_PENDING);
             data.fullMoonPending = tag.getBoolean(FULL_MOON_PENDING);
+            if (tag.contains(MOB_SPAWN_ENABLED)) {
+                data.mobSpawnEnabled = tag.getBoolean(MOB_SPAWN_ENABLED);
+            }
             CompoundTag rerollTag = tag.getCompound(REROLL_USED);
             for (String key : rerollTag.getAllKeys()) {
                 data.rerollUsedByDay.put(UUID.fromString(key), rerollTag.getLong(key));
@@ -344,6 +387,7 @@ public class LuckyDrawsEvents {
             tag.putLong(LAST_DRAW_DAY, lastDrawDay);
             tag.putBoolean(THUNDER_PENDING, thunderPending);
             tag.putBoolean(FULL_MOON_PENDING, fullMoonPending);
+            tag.putBoolean(MOB_SPAWN_ENABLED, mobSpawnEnabled);
             CompoundTag rerollTag = new CompoundTag();
             for (Map.Entry<UUID, Long> entry : rerollUsedByDay.entrySet()) {
                 rerollTag.putLong(entry.getKey().toString(), entry.getValue());
@@ -381,6 +425,14 @@ public class LuckyDrawsEvents {
 
         long getLastDrawDay() {
             return lastDrawDay;
+        }
+
+        boolean isMobSpawnEnabled() {
+            return mobSpawnEnabled;
+        }
+
+        void setMobSpawnEnabled(boolean enabled) {
+            mobSpawnEnabled = enabled;
         }
 
         int getLowQualityStreak(UUID playerId) {
