@@ -23,7 +23,9 @@ jobs:
           cache: "gradle"
 
       - name: Build
-        run: ./gradlew build
+        run: |
+          chmod +x gradlew
+          ./gradlew build
 
       - name: Release
         uses: softprops/action-gh-release@v2
