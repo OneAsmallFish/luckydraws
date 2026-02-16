@@ -1,8 +1,6 @@
 package org.luckydraws;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.DoubleArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -11,6 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.event.RegisterCommandsEvent;
@@ -19,6 +18,7 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.List;
+import java.util.Locale;
 
 @Mod.EventBusSubscriber(modid = Luckydraws.MODID)
 public class LuckyDrawsCommands {
@@ -29,54 +29,14 @@ public class LuckyDrawsCommands {
         dispatcher.register(Commands.literal("luckydraws")
                 .then(Commands.literal("reroll")
                         .executes(context -> reroll(context.getSource())))
-                .then(Commands.literal("settime")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("time", IntegerArgumentType.integer(0, 23999))
-                                .executes(context -> setTime(context.getSource(), IntegerArgumentType.getInteger(context, "time")))))
-                .then(Commands.literal("setmean")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("mean", DoubleArgumentType.doubleArg(1.0, 64.0))
-                                .executes(context -> setMean(context.getSource(), DoubleArgumentType.getDouble(context, "mean")))))
-                .then(Commands.literal("setstddev")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("stddev", DoubleArgumentType.doubleArg(0.0, 64.0))
-                                .executes(context -> setStdDev(context.getSource(), DoubleArgumentType.getDouble(context, "stddev")))))
-                .then(Commands.literal("setpotionchance")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("chance", DoubleArgumentType.doubleArg(0.0, 1.0))
-                                .executes(context -> setPotionChance(context.getSource(), DoubleArgumentType.getDouble(context, "chance")))))
-                .then(Commands.literal("setmobchance")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("chance", DoubleArgumentType.doubleArg(0.0, 1.0))
-                                .executes(context -> setMobChance(context.getSource(), DoubleArgumentType.getDouble(context, "chance")))))
-                .then(Commands.literal("setmobmax")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 20))
-                                .executes(context -> setMobMax(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
-                .then(Commands.literal("setmobsize")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("max", IntegerArgumentType.integer(0, 20))
-                                .executes(context -> setMobSize(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
-                .then(Commands.literal("setcreepradius")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 128))
-                                .executes(context -> setCreeperRadius(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
-                .then(Commands.literal("setexplambda")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("lambda", DoubleArgumentType.doubleArg(0.1, 5.0))
-                                .executes(context -> setExpLambda(context.getSource(), DoubleArgumentType.getDouble(context, "lambda")))))
-                .then(Commands.literal("setenchantmax")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 255))
-                                .executes(context -> setEnchantMax(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
-                .then(Commands.literal("setpotionmax")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("max", IntegerArgumentType.integer(1, 255))
-                                .executes(context -> setPotionMax(context.getSource(), IntegerArgumentType.getInteger(context, "max")))))
                 .then(Commands.literal("history")
                         .executes(context -> showHistory(context.getSource())))
                 .then(Commands.literal("help")
                         .executes(context -> showHelp(context.getSource())))
+                .then(Commands.literal("config")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("reload")
+                                .executes(context -> reloadConfig(context.getSource()))))
                 .then(Commands.literal("mobspawn")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("on")
@@ -86,6 +46,7 @@ public class LuckyDrawsCommands {
                         .then(Commands.literal("status")
                                 .executes(context -> showMobSpawn(context.getSource()))))
                 .then(Commands.literal("show")
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> showConfig(context.getSource()))));
     }
 
@@ -94,7 +55,7 @@ public class LuckyDrawsCommands {
         MinecraftServer server = source.getServer();
         ServerLevel overworld = server.getLevel(Level.OVERWORLD);
         if (overworld == null) {
-            source.sendFailure(Component.literal("主世界不存在，无法抽取。"));
+            source.sendFailure(localized(source, "主世界不存在，无法抽取。", "Overworld is missing, unable to draw."));
             return 0;
         }
 
@@ -102,18 +63,18 @@ public class LuckyDrawsCommands {
         long currentDay = dayTime / 24000L;
         LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
         if (data.getLastDrawDay() < currentDay) {
-            source.sendFailure(Component.literal("今天还没有进行抽取，无法再抽一次。"));
+            source.sendFailure(localized(source, "今天还没有进行抽取，无法再抽一次。", "Today's draw has not happened yet, reroll is unavailable."));
             return 0;
         }
         if (!data.canReroll(player.getUUID(), currentDay)) {
-            source.sendFailure(Component.literal("今天已使用过再抽一次。"));
+            source.sendFailure(localized(source, "今天已使用过再抽一次。", "You have already used today's reroll."));
             return 0;
         }
 
         boolean forceSpecial = data.getLowQualityStreak(player.getUUID()) >= 3;
         ItemStack stack = LuckyDrawsEvents.rollStack(overworld.getRandom(), forceSpecial, false, false);
         if (stack.isEmpty()) {
-            source.sendFailure(Component.literal("抽取失败：物品列表为空。"));
+            source.sendFailure(localized(source, "抽取失败：物品列表为空。", "Draw failed: item pool is empty."));
             return 0;
         }
 
@@ -126,84 +87,34 @@ public class LuckyDrawsCommands {
         return 1;
     }
 
-    private static int setTime(CommandSourceStack source, int time) {
-        Config.setDrawTime(time);
-        source.sendSuccess(() -> Component.literal("抽取时间已设置为: " + time), true);
-        return 1;
-    }
-
-    private static int setMean(CommandSourceStack source, double mean) {
-        Config.setDrawMean(mean);
-        source.sendSuccess(() -> Component.literal("数量均值已设置为: " + mean), true);
-        return 1;
-    }
-
-    private static int setStdDev(CommandSourceStack source, double stdDev) {
-        Config.setDrawStdDev(stdDev);
-        source.sendSuccess(() -> Component.literal("数量标准差已设置为: " + stdDev), true);
-        return 1;
-    }
-
     private static int showConfig(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("当前配置: 抽取时间=" + Config.drawTime
-                + ", 均值=" + Config.drawMean
-                + ", 标准差=" + Config.drawStdDev
-                + ", 药水概率=" + Config.potionChance
-                + ", 生物概率=" + Config.mobSpawnChance
-                + ", 生物数量上限=" + Config.mobSpawnMax
-                + ", 体型加成上限=" + Config.mobSizeBonusMax
-                + ", 苦力怕爆炸上限=" + Config.creeperRadiusMax
-                + ", 指数参数=" + Config.expLambda
-                + ", 附魔上限=" + Config.enchantLevelMax
-                + ", 药水上限=" + Config.potionLevelMax), false);
-        return 1;
-    }
-
-    private static int setPotionChance(CommandSourceStack source, double chance) {
-        Config.setPotionChance(chance);
-        source.sendSuccess(() -> Component.literal("药水概率已设置为: " + chance), true);
-        return 1;
-    }
-
-    private static int setMobChance(CommandSourceStack source, double chance) {
-        Config.setMobSpawnChance(chance);
-        source.sendSuccess(() -> Component.literal("生物概率已设置为: " + chance), true);
-        return 1;
-    }
-
-    private static int setMobMax(CommandSourceStack source, int max) {
-        Config.setMobSpawnMax(max);
-        source.sendSuccess(() -> Component.literal("生物数量上限已设置为: " + max), true);
-        return 1;
-    }
-
-    private static int setMobSize(CommandSourceStack source, int max) {
-        Config.setMobSizeBonusMax(max);
-        source.sendSuccess(() -> Component.literal("体型加成上限已设置为: " + max), true);
-        return 1;
-    }
-
-    private static int setCreeperRadius(CommandSourceStack source, int max) {
-        Config.setCreeperRadiusMax(max);
-        source.sendSuccess(() -> Component.literal("苦力怕爆炸上限已设置为: " + max), true);
-        return 1;
-    }
-
-    private static int setExpLambda(CommandSourceStack source, double lambda) {
-        Config.setExpLambda(lambda);
-        source.sendSuccess(() -> Component.literal("指数参数已设置为: " + lambda), true);
-        return 1;
-    }
-
-    private static int setEnchantMax(CommandSourceStack source, int max) {
-        Config.setEnchantLevelMax(max);
-        source.sendSuccess(() -> Component.literal("附魔等级上限已设置为: " + max), true);
-        return 1;
-    }
-
-    private static int setPotionMax(CommandSourceStack source, int max) {
-        Config.setPotionLevelMax(max);
-        source.sendSuccess(() -> Component.literal("药水等级上限已设置为: " + max), true);
+        if (isChinese(source)) {
+            source.sendSuccess(() -> Component.literal("当前配置: 抽取时间=" + Config.drawTime
+                    + ", 均值=" + Config.drawMean
+                    + ", 标准差=" + Config.drawStdDev
+                    + ", 药水概率=" + Config.potionChance
+                    + ", 生物概率=" + Config.mobSpawnChance
+                    + ", 生物数量上限=" + Config.mobSpawnMax
+                    + ", 体型加成上限=" + Config.mobSizeBonusMax
+                    + ", 苦力怕爆炸上限=" + Config.creeperRadiusMax
+                    + ", 指数参数=" + Config.expLambda
+                    + ", 附魔上限=" + Config.enchantLevelMax
+                    + ", 药水上限=" + Config.potionLevelMax
+                    + ", 物品黑名单数量=" + Config.drawItemBlacklist.size()), false);
+        } else {
+            source.sendSuccess(() -> Component.literal("Current config: drawTime=" + Config.drawTime
+                    + ", drawMean=" + Config.drawMean
+                    + ", drawStdDev=" + Config.drawStdDev
+                    + ", potionChance=" + Config.potionChance
+                    + ", mobSpawnChance=" + Config.mobSpawnChance
+                    + ", mobSpawnMax=" + Config.mobSpawnMax
+                    + ", mobSizeBonusMax=" + Config.mobSizeBonusMax
+                    + ", creeperRadiusMax=" + Config.creeperRadiusMax
+                    + ", expLambda=" + Config.expLambda
+                    + ", enchantLevelMax=" + Config.enchantLevelMax
+                    + ", potionLevelMax=" + Config.potionLevelMax
+                    + ", drawItemBlacklistSize=" + Config.drawItemBlacklist.size()), false);
+        }
         return 1;
     }
 
@@ -211,86 +122,102 @@ public class LuckyDrawsCommands {
         ServerPlayer player = source.getPlayerOrException();
         ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
         if (overworld == null) {
-            source.sendFailure(Component.literal("主世界不存在，无法查看记录。"));
+            source.sendFailure(localized(source, "主世界不存在，无法查看记录。", "Overworld is missing, unable to view history."));
             return 0;
         }
 
         LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
         List<LuckyDrawsEvents.HistoryEntry> history = data.getHistory(player.getUUID());
         if (history.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("暂无抽取记录。"), false);
+            source.sendSuccess(() -> localized(source, "暂无抽取记录。", "No draw history yet."), false);
             return 1;
         }
 
-        source.sendSuccess(() -> Component.literal("最近" + history.size() + "次抽取记录："), false);
+        source.sendSuccess(() -> localized(source, "最近" + history.size() + "次抽取记录：", "Latest " + history.size() + " draw records:"), false);
         for (LuckyDrawsEvents.HistoryEntry entry : history) {
-            Component line = buildHistoryLine(entry);
+            Component line = buildHistoryLine(source, entry);
             source.sendSuccess(() -> line, false);
         }
         return 1;
     }
 
     private static int showHelp(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("LuckyDraws 指令帮助"), false);
-        source.sendSuccess(() -> Component.literal("玩家可用:"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws reroll - 再抽一次(每日1次)"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws history - 查看最近抽取记录"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws show - 查看当前配置"), false);
+        source.sendSuccess(() -> localized(source, "LuckyDraws 指令帮助", "LuckyDraws command help"), false);
+        source.sendSuccess(() -> localized(source, "玩家可用:", "Player commands:"), false);
+        source.sendSuccess(() -> localized(source, "/luckydraws reroll - 再抽一次(每日1次)", "/luckydraws reroll - reroll once per day"), false);
+        source.sendSuccess(() -> localized(source, "/luckydraws history - 查看最近抽取记录", "/luckydraws history - show recent draw history"), false);
+        source.sendSuccess(() -> localized(source, "/luckydraws show - 查看当前配置", "/luckydraws show - show current config"), false);
 
-        source.sendSuccess(() -> Component.literal("管理员可用:"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws mobspawn on|off|status - 生物生成开关"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws settime <0-23999>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setmean <1-64>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setstddev <0-64>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setpotionchance <0-1>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setmobchance <0-1>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setmobmax <1-20>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setmobsize <0-20>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setcreepradius <1-128>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setexplambda <0.1-5>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setenchantmax <1-255>"), false);
-        source.sendSuccess(() -> Component.literal("/luckydraws setpotionmax <1-255>"), false);
+        source.sendSuccess(() -> localized(source, "管理员可用:", "Admin commands:"), false);
+        source.sendSuccess(() -> localized(source, "/luckydraws config reload - 热重载配置", "/luckydraws config reload - hot reload config"), false);
+        source.sendSuccess(() -> localized(source, "/luckydraws mobspawn on | off | status - 生物生成开关", "/luckydraws mobspawn on | off | status - mob spawn toggle"), false);
+        source.sendSuccess(() -> localized(source, "配置文件路径: .minecraft/config/luckydraws-common.toml", "Config path: .minecraft/config/luckydraws-common.toml"), false);
+        source.sendSuccess(() -> localized(source, "编辑后热重载生效（或重启服务器）", "Apply changes with hot reload (or restart server)"), false);
         return 1;
+    }
+
+    private static int reloadConfig(CommandSourceStack source) {
+        Config.ReloadResult result = Config.reloadFromDisk();
+        if (result.success()) {
+            source.sendSuccess(() -> localized(source, "配置已热重载。详情: " + result.message(), "Config hot reloaded. Detail: " + result.message()), true);
+            return 1;
+        }
+        source.sendFailure(localized(source, "配置热重载失败。详情: " + result.message(), "Config hot reload failed. Detail: " + result.message()));
+        return 0;
     }
 
     private static int setMobSpawn(CommandSourceStack source, boolean enabled) {
         ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
         if (overworld == null) {
-            source.sendFailure(Component.literal("主世界不存在，无法设置。"));
+            source.sendFailure(localized(source, "主世界不存在，无法设置。", "Overworld is missing, unable to update setting."));
             return 0;
         }
         LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
         data.setMobSpawnEnabled(enabled);
         data.setDirty();
-        source.sendSuccess(() -> Component.literal("随机生物生成已" + (enabled ? "开启" : "关闭")), true);
+        source.sendSuccess(() -> localized(source, "随机生物生成已" + (enabled ? "开启" : "关闭"), "Random mob spawning is now " + (enabled ? "enabled" : "disabled")), true);
         return 1;
     }
 
     private static int showMobSpawn(CommandSourceStack source) {
         ServerLevel overworld = source.getServer().getLevel(Level.OVERWORLD);
         if (overworld == null) {
-            source.sendFailure(Component.literal("主世界不存在，无法查看。"));
+            source.sendFailure(localized(source, "主世界不存在，无法查看。", "Overworld is missing, unable to query status."));
             return 0;
         }
         LuckyDrawsEvents.LuckyDrawsSavedData data = LuckyDrawsEvents.LuckyDrawsSavedData.get(overworld);
-        source.sendSuccess(() -> Component.literal("随机生物生成状态: " + (data.isMobSpawnEnabled() ? "开启" : "关闭")), false);
+        source.sendSuccess(() -> localized(source, "随机生物生成状态: " + (data.isMobSpawnEnabled() ? "开启" : "关闭"), "Random mob spawn status: " + (data.isMobSpawnEnabled() ? "enabled" : "disabled")), false);
         return 1;
     }
 
-    private static Component buildHistoryLine(LuckyDrawsEvents.HistoryEntry entry) {
+    private static Component buildHistoryLine(CommandSourceStack source, LuckyDrawsEvents.HistoryEntry entry) {
         String itemId = entry.getItemId();
         ItemStack stack = ItemStack.EMPTY;
         if (ForgeRegistries.ITEMS.containsKey(new ResourceLocation(itemId))) {
             stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(itemId)), entry.getCount());
         }
         Component name = stack.isEmpty() ? Component.literal(itemId) : stack.getHoverName();
-        String flag = entry.isSpecial() ? "（特殊）" : "";
-        String source = "抽取";
+        boolean zh = isChinese(source);
+        String flag = entry.isSpecial() ? (zh ? "（特殊）" : " (special)") : "";
+        String sourceText = zh ? "抽取" : "draw";
         if ("reroll".equals(entry.getSource())) {
-            source = "再抽";
+            sourceText = zh ? "再抽" : "reroll";
         }
         return Component.literal("- ")
                 .append(name)
-                .append(Component.literal(" x " + entry.getCount() + " " + source + flag));
+                .append(Component.literal(" x " + entry.getCount() + " " + sourceText + flag));
+    }
+
+    private static Component localized(CommandSourceStack source, String zh, String en) {
+        return Component.literal(isChinese(source) ? zh : en);
+    }
+
+    private static boolean isChinese(CommandSourceStack source) {
+        Entity entity = source.getEntity();
+        if (entity instanceof ServerPlayer player) {
+            String lang = player.getLanguage();
+            return lang != null && lang.toLowerCase(Locale.ROOT).startsWith("zh");
+        }
+        return false;
     }
 }

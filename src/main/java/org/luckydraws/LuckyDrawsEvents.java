@@ -33,6 +33,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = Luckydraws.MODID)
@@ -154,11 +155,28 @@ public class LuckyDrawsEvents {
         if (cachedItems == null) {
             cachedItems = new ArrayList<>(ForgeRegistries.ITEMS.getValues());
             cachedItems.remove(Items.AIR);
+            Set<String> blacklist = Config.drawItemBlacklist;
+            if (!blacklist.isEmpty()) {
+                cachedItems.removeIf(item -> {
+                    if (item == null) {
+                        return true;
+                    }
+                    if (item == Items.AIR) {
+                        return true;
+                    }
+                    return ForgeRegistries.ITEMS.getKey(item) != null
+                            && blacklist.contains(ForgeRegistries.ITEMS.getKey(item).toString());
+                });
+            }
         }
         if (cachedItems.isEmpty()) {
             return null;
         }
         return cachedItems.get(random.nextInt(cachedItems.size()));
+    }
+
+    static void invalidateItemCache() {
+        cachedItems = null;
     }
 
     // 正态分布抽取数量，并限制在 1-64
@@ -234,7 +252,7 @@ public class LuckyDrawsEvents {
     private static void applyDisplayTag(RandomSource random, ItemStack stack) {
         CompoundTag display = stack.getOrCreateTag().getCompound("display");
         Component original = stack.getHoverName().copy()
-                .withStyle(style -> style.withColor(ChatFormatting.BLUE).withItalic(true));
+                .withStyle(style -> style.withColor(ChatFormatting.AQUA).withItalic(true));
         ListTag lore = new ListTag();
         for (String line : rollLore(random)) {
             lore.add(StringTag.valueOf(line));

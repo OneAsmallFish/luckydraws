@@ -13,6 +13,9 @@ LuckyDraws is a server-side Forge mod for Minecraft 1.20.1 that runs a daily luc
 - One-time daily reroll
 - Optional bonus events and random potion effects
 - Optional random nearby mob spawns
+- Item blacklist support (`drawItemBlacklist`)
+- Config hot reload (`/luckydraws config reload`)
+- Command message language auto-adapts by player locale (`zh_*` or fallback English)
 
 ## Requirements
 
@@ -39,22 +42,23 @@ Output jar: `build/libs/`
 Player:
 - `/luckydraws reroll`
 - `/luckydraws history`
-- `/luckydraws show`
 - `/luckydraws help`
 
 Admin:
+- `/luckydraws show`
+- `/luckydraws config reload`
 - `/luckydraws mobspawn on|off|status`
-- `/luckydraws settime <0-23999>`
-- `/luckydraws setmean <1-64>`
-- `/luckydraws setstddev <0-64>`
-- `/luckydraws setpotionchance <0-1>`
-- `/luckydraws setmobchance <0-1>`
-- `/luckydraws setmobmax <1-20>`
-- `/luckydraws setmobsize <0-20>`
-- `/luckydraws setcreepradius <1-128>`
-- `/luckydraws setexplambda <0.1-5>`
-- `/luckydraws setenchantmax <1-255>`
-- `/luckydraws setpotionmax <1-255>`
+
+## Configuration
+
+- Config file: `.minecraft/config/luckydraws-common.toml`
+- The mod generates default config on first launch.
+- After editing, run `/luckydraws config reload` (or restart server).
+- Example blacklist:
+
+```toml
+drawItemBlacklist = ["minecraft:bedrock", "minecraft:command_block"]
+```
 
 ## License
 

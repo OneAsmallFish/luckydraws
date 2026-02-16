@@ -13,6 +13,9 @@ LuckyDraws 是一个适用于 Minecraft 1.20.1 的服务端 Forge 模组，每�
 - 每日一次再抽
 - 可选事件加成与随机药水效果
 - 可选随机附近生成生物
+- 支持物品黑名单（`drawItemBlacklist`）
+- 支持配置热重载（`/luckydraws config reload`）
+- 指令返回文本会根据玩家客户端语言自动适配（`zh_*` 中文，否则英文）
 
 ## 运行环境
 
@@ -39,22 +42,23 @@ gradlew build
 玩家：
 - `/luckydraws reroll`
 - `/luckydraws history`
-- `/luckydraws show`
 - `/luckydraws help`
 
 管理员：
+- `/luckydraws show`
+- `/luckydraws config reload`
 - `/luckydraws mobspawn on|off|status`
-- `/luckydraws settime <0-23999>`
-- `/luckydraws setmean <1-64>`
-- `/luckydraws setstddev <0-64>`
-- `/luckydraws setpotionchance <0-1>`
-- `/luckydraws setmobchance <0-1>`
-- `/luckydraws setmobmax <1-20>`
-- `/luckydraws setmobsize <0-20>`
-- `/luckydraws setcreepradius <1-128>`
-- `/luckydraws setexplambda <0.1-5>`
-- `/luckydraws setenchantmax <1-255>`
-- `/luckydraws setpotionmax <1-255>`
+
+## 配置说明
+
+- 配置文件路径：`.minecraft/config/luckydraws-common.toml`
+- 首次启动模组时会自动生成默认配置。
+- 修改配置后可执行 `/luckydraws config reload`（或重启服务器）生效。
+- 黑名单示例：
+
+```toml
+drawItemBlacklist = ["minecraft:bedrock", "minecraft:command_block"]
+```
 
 ## 许可
 
