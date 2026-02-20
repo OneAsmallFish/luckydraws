@@ -72,14 +72,14 @@ public class LuckyDrawsCommands {
         }
 
         boolean forceSpecial = data.getLowQualityStreak(player.getUUID()) >= 3;
-        ItemStack stack = LuckyDrawsEvents.rollStack(overworld.getRandom(), forceSpecial, false, false);
+        ItemStack stack = LuckyDrawsEvents.rollStack(overworld.getRandom(), forceSpecial, false, false, player);
         if (stack.isEmpty()) {
             source.sendFailure(localized(source, "抽取失败：物品列表为空。", "Draw failed: item pool is empty."));
             return 0;
         }
 
         LuckyDrawsEvents.grantToPlayer(player, stack);
-        player.sendSystemMessage(LuckyDrawsEvents.buildMessage(stack));
+        player.sendSystemMessage(LuckyDrawsEvents.buildMessage(player, stack));
         data.recordHistory(player, stack, "reroll");
         data.updateLowQualityStreak(player.getUUID(), LuckyDrawsEvents.isSpecial(stack));
         data.markRerollUsed(player.getUUID(), currentDay);

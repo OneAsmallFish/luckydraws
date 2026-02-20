@@ -10,6 +10,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffect;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Locale;
 
 @Mod.EventBusSubscriber(modid = Luckydraws.MODID)
 public class LuckyDrawsEvents {
@@ -98,14 +100,14 @@ public class LuckyDrawsEvents {
         // 每位玩家独立抽取物品与数量
         for (Player player : server.getPlayerList().getPlayers()) {
             boolean forceSpecial = data.getLowQualityStreak(player.getUUID()) >= LOW_QUALITY_LIMIT;
-            ItemStack stack = rollStack(overworld.getRandom(), forceSpecial, thunderBonus, fullMoonBonus);
+            ItemStack stack = rollStack(overworld.getRandom(), forceSpecial, thunderBonus, fullMoonBonus, player);
             if (stack.isEmpty()) {
                 continue;
             }
 
             // 先尝试放入背包，满了则掉落在玩家位置
             grantToPlayer(player, stack);
-            player.sendSystemMessage(buildMessage(stack));
+            player.sendSystemMessage(buildMessage(player, stack));
             data.recordHistory(player, stack, "draw");
             data.updateLowQualityStreak(player.getUUID(), isSpecial(stack));
 
@@ -130,23 +132,8 @@ public class LuckyDrawsEvents {
         data.rerollUsedByDay.clear();
         data.setDirty();
 
-        MutableComponent announcement = Component.literal("今日抽取已完成");
-        if (thunderBonus || fullMoonBonus) {
-            StringBuilder bonus = new StringBuilder("（");
-            if (thunderBonus) {
-                bonus.append("雷雨加成");
-            }
-            if (fullMoonBonus) {
-                if (thunderBonus) {
-                    bonus.append("、");
-                }
-                bonus.append("满月加成");
-            }
-            bonus.append("）");
-            announcement = announcement.append(Component.literal(bonus.toString()));
-        }
         for (Player player : server.getPlayerList().getPlayers()) {
-            player.sendSystemMessage(announcement);
+            player.sendSystemMessage(buildDailyAnnouncement(player, thunderBonus, fullMoonBonus));
         }
     }
 
@@ -185,7 +172,7 @@ public class LuckyDrawsEvents {
         return Mth.clamp((int) Math.round(gaussian), 1, 64);
     }
 
-    static ItemStack rollStack(RandomSource random, boolean forceSpecial, boolean thunderBonus, boolean fullMoonBonus) {
+    static ItemStack rollStack(RandomSource random, boolean forceSpecial, boolean thunderBonus, boolean fullMoonBonus, Player player) {
         Item item = pickRandomItem(random);
         if (item == null) {
             return ItemStack.EMPTY;
@@ -196,7 +183,7 @@ public class LuckyDrawsEvents {
         if (forceSpecial || random.nextDouble() < chance) {
             // 特殊抽取：随机附魔 + 标签
             applyRandomEnchantment(random, stack);
-            applyLuckyTag(random, stack, fullMoonBonus);
+            applyLuckyTag(random, stack, fullMoonBonus, player);
         }
         return stack;
     }
@@ -209,18 +196,49 @@ public class LuckyDrawsEvents {
         }
     }
 
-    static Component buildMessage(ItemStack stack) {
-        MutableComponent base = Component.literal("幸运抽取: ")
+    static Component buildMessage(Player player, ItemStack stack) {
+        MutableComponent base = Component.literal(localizedText(player, "幸运抽取: ", "Lucky Draw: "))
                 .append(Component.literal(String.valueOf(stack.getCount())))
                 .append(Component.literal(" x "))
                 .append(formatDisplayName(stack));
-        MutableComponent reroll = Component.literal(" 不满意？")
-                .append(Component.literal("再抽一次")
+        MutableComponent reroll = Component.literal(localizedText(player, " 不满意？", " Not satisfied? "))
+                .append(Component.literal(localizedText(player, "再抽一次", "Reroll"))
                         .setStyle(Style.EMPTY
                                 .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, REROLL_COMMAND))
                                 .withColor(ChatFormatting.AQUA)
                                 .withUnderlined(true)));
         return base.append(reroll);
+    }
+
+    private static Component buildDailyAnnouncement(Player player, boolean thunderBonus, boolean fullMoonBonus) {
+        MutableComponent announcement = Component.literal(localizedText(player, "今日抽取已完成", "Today's draw is complete"));
+        if (thunderBonus || fullMoonBonus) {
+            StringBuilder bonus = new StringBuilder(" (");
+            if (thunderBonus) {
+                bonus.append(localizedText(player, "雷雨加成", "Thunder bonus"));
+            }
+            if (fullMoonBonus) {
+                if (thunderBonus) {
+                    bonus.append(" + ");
+                }
+                bonus.append(localizedText(player, "满月加成", "Full moon bonus"));
+            }
+            bonus.append(")");
+            announcement = announcement.append(Component.literal(bonus.toString()));
+        }
+        return announcement;
+    }
+
+    private static String localizedText(Player player, String zh, String en) {
+        return isChinese(player) ? zh : en;
+    }
+
+    private static boolean isChinese(Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            String language = serverPlayer.getLanguage();
+            return language != null && language.toLowerCase(Locale.ROOT).startsWith("zh");
+        }
+        return false;
     }
 
     private static Component formatDisplayName(ItemStack stack) {
@@ -241,20 +259,20 @@ public class LuckyDrawsEvents {
         stack.enchant(enchantment, level);
     }
 
-    private static void applyLuckyTag(RandomSource random, ItemStack stack, boolean fullMoonBonus) {
+    private static void applyLuckyTag(RandomSource random, ItemStack stack, boolean fullMoonBonus, Player player) {
         stack.getOrCreateTag().putBoolean(LUCKY_TAG, true);
         stack.getOrCreateTag().putInt(LUCKY_TAG_SEED, random.nextInt());
 
-        applyDisplayTag(random, stack);
+        applyDisplayTag(random, stack, player);
         applyAttributeTag(random, stack, fullMoonBonus);
     }
 
-    private static void applyDisplayTag(RandomSource random, ItemStack stack) {
+    private static void applyDisplayTag(RandomSource random, ItemStack stack, Player player) {
         CompoundTag display = stack.getOrCreateTag().getCompound("display");
         Component original = stack.getHoverName().copy()
                 .withStyle(style -> style.withColor(ChatFormatting.AQUA).withItalic(true));
         ListTag lore = new ListTag();
-        for (String line : rollLore(random)) {
+        for (String line : rollLore(random, player)) {
             lore.add(StringTag.valueOf(line));
         }
         display.putString("Name", Component.Serializer.toJson(original));
@@ -276,19 +294,37 @@ public class LuckyDrawsEvents {
         stack.getOrCreateTag().put("AttributeModifiers", modifiers);
     }
 
-    private static String[] rollLore(RandomSource random) {
+    private static String[] rollLore(RandomSource random, Player player) {
+        if (isChinese(player)) {
+            String[][] loreOptions = new String[][] {
+                    new String[] {
+                            "{\"text\":\"表面上普普通通\",\"color\":\"yellow\"}",
+                            "{\"text\":\"但是蕴含着无穷的力量\",\"color\":\"yellow\"}"
+                    },
+                    new String[] {
+                            "{\"text\":\"在某个夜晚被发现\",\"color\":\"aqua\"}",
+                            "{\"text\":\"仍散发着微弱光芒\",\"color\":\"aqua\"}"
+                    },
+                    new String[] {
+                            "{\"text\":\"轻若鸿毛\",\"color\":\"gray\"}",
+                            "{\"text\":\"却重似千钧\",\"color\":\"gray\"}"
+                    }
+            };
+            return loreOptions[random.nextInt(loreOptions.length)];
+        }
+
         String[][] loreOptions = new String[][] {
                 new String[] {
-                        "{\"text\":\"表面上普普通通\",\"color\":\"yellow\"}",
-                        "{\"text\":\"但是蕴含着无穷的力量\",\"color\":\"yellow\"}"
+                        "{\"text\":\"Looks ordinary at first glance\",\"color\":\"yellow\"}",
+                        "{\"text\":\"Yet it hides endless power\",\"color\":\"yellow\"}"
                 },
                 new String[] {
-                        "{\"text\":\"在某个夜晚被发现\",\"color\":\"aqua\"}",
-                        "{\"text\":\"仍散发着微弱光芒\",\"color\":\"aqua\"}"
+                        "{\"text\":\"Discovered in a distant night\",\"color\":\"aqua\"}",
+                        "{\"text\":\"Still glows with a faint light\",\"color\":\"aqua\"}"
                 },
                 new String[] {
-                        "{\"text\":\"轻若鸿毛\",\"color\":\"gray\"}",
-                        "{\"text\":\"却重似千钧\",\"color\":\"gray\"}"
+                        "{\"text\":\"Light as a feather\",\"color\":\"gray\"}",
+                        "{\"text\":\"Heavy as a mountain\",\"color\":\"gray\"}"
                 }
         };
         return loreOptions[random.nextInt(loreOptions.length)];
